@@ -1,0 +1,4 @@
+*.mkv
+output_segments
+segments.csv
+*.chapters.csv
