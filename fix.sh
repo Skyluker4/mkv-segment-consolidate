@@ -1,9 +1,39 @@
 #!/bin/bash
 
+show_help() {
+  cat <<EOF
+Usage: $0 <input_files_or_dir...> [options]
+
+Merge MKV files that use external segment linking into single self-contained
+MKV files (without re-encoding).
+
+Arguments:
+  input_files_or_dir    One or more MKV files or directories to process.
+                        Directories are searched recursively for .mkv files.
+
+Options:
+  -o <path>             Output file (single input) or directory (multiple inputs).
+                        Defaults to <input>.merged.mkv alongside the original.
+  --prepend <prefix>    Prepend a string to the output file's title metadata.
+  --append <suffix>     Append a string to the output file's title metadata.
+  --include <pattern>   Only process files whose name matches this regex.
+  --exclude <pattern>   Skip files whose name matches this regex.
+                        Filters are applied to the filename only (not the path).
+                        When both are given, --include is applied first.
+  -h, --help            Show this help message and exit.
+
+Examples:
+  $0 02.mkv
+  $0 02.mkv -o /out/ep2.mkv
+  $0 ./ -o /out/ --exclude '^(SP|ED|OP)'
+  $0 ./ --include '^[0-9]' --prepend "My Show - "
+EOF
+  exit 0
+}
+
 # Check if arguments were provided
 if [ -z "$1" ]; then
-  echo "Usage: $0 <input_files_or_dir...> [-o output] [--prepend prefix] [--append suffix] [--include pattern] [--exclude pattern]"
-  exit 1
+  show_help
 fi
 
 # Parse arguments
@@ -15,6 +45,9 @@ include_pattern=""
 exclude_pattern=""
 while [ $# -gt 0 ]; do
   case "$1" in
+    -h|--help)
+      show_help
+      ;;
     -o)
       shift
       output_arg="$1"
