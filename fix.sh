@@ -2,18 +2,28 @@
 
 # Check if arguments were provided
 if [ -z "$1" ]; then
-  echo "Usage: $0 <input_files_or_dir...> [-o output_file_or_dir]"
+  echo "Usage: $0 <input_files_or_dir...> [-o output_file_or_dir] [--prepend title_prefix] [--append title_suffix]"
   exit 1
 fi
 
-# Parse arguments: collect inputs, detect -o <output>
+# Parse arguments
 input_args=()
 output_arg=""
+title_prepend=""
+title_append=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -o)
       shift
       output_arg="$1"
+      ;;
+    --prepend)
+      shift
+      title_prepend="$1"
+      ;;
+    --append)
+      shift
+      title_append="$1"
       ;;
     *)
       input_args+=("$1")
@@ -313,6 +323,13 @@ function print_chapter() {
 
   # --- Concatenate all segments into the final merged MKV ---
   local -a merge_args=(-o "$output_file" --chapters "$chapters_xml")
+  # Set file title if prepend/append options were given
+  if [ -n "$title_prepend" ] || [ -n "$title_append" ]; then
+    local base_title
+    base_title=$(basename "${input_file%.*}")
+    local file_title="${title_prepend}${base_title}${title_append}"
+    merge_args+=(--title "$file_title")
+  fi
   for ((g = 0; g < ${#segment_files[@]}; g++)); do
     if [ $g -gt 0 ]; then
       merge_args+=("+" "${segment_files[$g]}")
