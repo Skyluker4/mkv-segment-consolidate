@@ -9,9 +9,9 @@ fi
 # Build file list
 if [ -d "$1" ]; then
   input_dir="${1%/}"
-  input_files=("$input_dir"/*.mkv)
-  if [ ${#input_files[@]} -eq 0 ] || [ ! -e "${input_files[0]}" ]; then
-    echo "No MKV files found in $input_dir"
+  mapfile -t input_files < <(find "$input_dir" -type f -name '*.mkv' | sort)
+  if [ ${#input_files[@]} -eq 0 ]; then
+    echo "No MKV files found in $input_dir (recursive)"
     exit 1
   fi
   # When input is a directory, $2 must be a directory (or omitted)
@@ -28,8 +28,23 @@ output_arg="${2:-}"
 resolve_output() {
   local infile="$1"
   if [ -n "$output_arg" ]; then
-    if [ -d "$output_arg" ]; then
-      echo "${output_arg%/}/$(basename "${infile%.*}.merged.mkv")"
+    if [ -d "$output_arg" ] || [[ -n "$input_dir" ]]; then
+      # Preserve subdirectory structure relative to input_dir
+      if [ -n "$input_dir" ]; then
+        local relpath="${infile#$input_dir/}"
+        local reldir
+        reldir=$(dirname "$relpath")
+        local outbase="${output_arg%/}"
+        if [ "$reldir" != "." ]; then
+          mkdir -p "$outbase/$reldir"
+          echo "$outbase/$reldir/$(basename "${infile%.*}.merged.mkv")"
+        else
+          mkdir -p "$outbase"
+          echo "$outbase/$(basename "${infile%.*}.merged.mkv")"
+        fi
+      else
+        echo "${output_arg%/}/$(basename "${infile%.*}.merged.mkv")"
+      fi
     else
       # Exact file path (only valid for single-file mode)
       echo "$output_arg"
@@ -40,11 +55,15 @@ resolve_output() {
 }
 
 # --- Build segment UID lookup (once, shared across all files) ---
-work_dir="$(pwd)"
+if [ -n "$input_dir" ]; then
+  work_dir="$(cd "$input_dir" && pwd)"
+else
+  work_dir="$(cd "$(dirname "$1")" && pwd)"
+fi
 segments_file="${work_dir}/segments.csv"
 
-# Scan all MKV files for their segment UIDs
-all_mkv=(*.mkv)
+# Scan all MKV files (recursively from working dir) for their segment UIDs
+mapfile -t all_mkv < <(find "$work_dir" -type f -name '*.mkv' | sort)
 echo 'filename,segmentuid' >"$segments_file"
 for file in "${all_mkv[@]}"; do
   echo "Reading $file for Segment UID..."
