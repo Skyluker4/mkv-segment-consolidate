@@ -2,7 +2,7 @@
 
 # Check if arguments were provided
 if [ -z "$1" ]; then
-  echo "Usage: $0 <input_files_or_dir...> [-o output_file_or_dir] [--prepend title_prefix] [--append title_suffix]"
+  echo "Usage: $0 <input_files_or_dir...> [-o output] [--prepend prefix] [--append suffix] [--include pattern] [--exclude pattern]"
   exit 1
 fi
 
@@ -11,6 +11,8 @@ input_args=()
 output_arg=""
 title_prepend=""
 title_append=""
+include_pattern=""
+exclude_pattern=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -o)
@@ -24,6 +26,14 @@ while [ $# -gt 0 ]; do
     --append)
       shift
       title_append="$1"
+      ;;
+    --include)
+      shift
+      include_pattern="$1"
+      ;;
+    --exclude)
+      shift
+      exclude_pattern="$1"
       ;;
     *)
       input_args+=("$1")
@@ -52,6 +62,22 @@ for arg in "${input_args[@]}"; do
     echo "Warning: '$arg' is not a file or directory, skipping."
   fi
 done
+
+# Apply include/exclude filters
+if [ -n "$include_pattern" ] || [ -n "$exclude_pattern" ]; then
+  filtered_files=()
+  for f in "${input_files[@]}"; do
+    fname=$(basename "$f")
+    if [ -n "$include_pattern" ] && ! [[ "$fname" =~ $include_pattern ]]; then
+      continue
+    fi
+    if [ -n "$exclude_pattern" ] && [[ "$fname" =~ $exclude_pattern ]]; then
+      continue
+    fi
+    filtered_files+=("$f")
+  done
+  input_files=("${filtered_files[@]}")
+fi
 
 if [ ${#input_files[@]} -eq 0 ]; then
   echo "No MKV files found from the given arguments."
