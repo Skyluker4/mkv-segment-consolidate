@@ -2,14 +2,27 @@
 
 # Check if a filename was provided
 if [ -z "$1" ]; then
-  echo "Usage: $0 <input_file>"
+  echo "Usage: $0 <input_file> [output_file_or_dir]"
   exit 1
 fi
 
 work_dir=$(dirname "$1")
 
 input_file="$1"
-output_file="${input_file%.*}.merged.mkv"
+
+# Determine output file path
+if [ -n "$2" ]; then
+  if [ -d "$2" ]; then
+    # Argument is an existing directory — place the output file there
+    output_file="${2%/}/$(basename "${input_file%.*}.merged.mkv")"
+  else
+    # Argument is a file path (directory will be created if needed)
+    mkdir -p "$(dirname "$2")"
+    output_file="$2"
+  fi
+else
+  output_file="${input_file%.*}.merged.mkv"
+fi
 
 echo "Reading $input_file for chapters..."
 
