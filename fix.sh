@@ -1,28 +1,57 @@
 #!/bin/bash
 
-# Check if a filename was provided
+# Check if arguments were provided
 if [ -z "$1" ]; then
-  echo "Usage: $0 <input_file_or_dir> [output_file_or_dir]"
+  echo "Usage: $0 <input_files_or_dir...> [-o output_file_or_dir]"
+  exit 1
+fi
+
+# Parse arguments: collect inputs, detect -o <output>
+input_args=()
+output_arg=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o)
+      shift
+      output_arg="$1"
+      ;;
+    *)
+      input_args+=("$1")
+      ;;
+  esac
+  shift
+done
+
+if [ ${#input_args[@]} -eq 0 ]; then
+  echo "No input files or directories specified."
   exit 1
 fi
 
 # Build file list
-if [ -d "$1" ]; then
-  input_dir="${1%/}"
-  mapfile -t input_files < <(find "$input_dir" -type f -name '*.mkv' | sort)
-  if [ ${#input_files[@]} -eq 0 ]; then
-    echo "No MKV files found in $input_dir (recursive)"
-    exit 1
+input_dir=""
+input_files=()
+for arg in "${input_args[@]}"; do
+  if [ -d "$arg" ]; then
+    input_dir="${arg%/}"
+    while IFS= read -r f; do
+      input_files+=("$f")
+    done < <(find "$input_dir" -type f -name '*.mkv' | sort)
+  elif [ -f "$arg" ]; then
+    input_files+=("$arg")
+  else
+    echo "Warning: '$arg' is not a file or directory, skipping."
   fi
-  # When input is a directory, $2 must be a directory (or omitted)
-  if [ -n "$2" ] && [ ! -d "$2" ]; then
-    mkdir -p "$2"
-  fi
-else
-  input_files=("$1")
+done
+
+if [ ${#input_files[@]} -eq 0 ]; then
+  echo "No MKV files found from the given arguments."
+  exit 1
 fi
 
-output_arg="${2:-}"
+# When output is given and multiple files, ensure it's a directory
+if [ -n "$output_arg" ] && [ ${#input_files[@]} -gt 1 ] && [ ! -d "$output_arg" ]; then
+  mkdir -p "$output_arg"
+fi
 
 # Resolve output path for a given input file
 resolve_output() {
