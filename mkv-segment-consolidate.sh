@@ -23,6 +23,8 @@ Options:
   --clean-chapters      Delete generated *.chapters.csv files when done.
   --clean-segments      Delete the generated segments.csv file when done.
   --clean               Delete both *.chapters.csv and segments.csv when done.
+  --work-dir <path>     Set the working directory for segments.csv and temp files.
+                        Defaults to the input directory.
   -h, --help            Show this help message and exit.
 
 Examples:
@@ -48,6 +50,7 @@ include_pattern=""
 exclude_pattern=""
 clean_chapters=false
 clean_segments=false
+work_dir_arg=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 	-h | --help)
@@ -82,6 +85,10 @@ while [ $# -gt 0 ]; do
 	--clean)
 		clean_chapters=true
 		clean_segments=true
+		;;
+	--work-dir)
+		shift
+		work_dir_arg="$1"
 		;;
 	*)
 		input_args+=("$1")
@@ -168,15 +175,29 @@ resolve_output() {
 }
 
 # --- Build segment UID lookup (once, shared across all files) ---
+# scan_dir: where to find MKV files for segment UIDs
+# work_dir: where to store segments.csv and other generated files
 if [ -n "$input_dir" ]; then
-	work_dir="$(cd "$input_dir" && pwd)"
+	scan_dir="$(cd "$input_dir" && pwd)"
 else
-	work_dir="$(cd "$(dirname "$1")" && pwd)"
+	scan_dir="$(cd "$(dirname "${input_files[0]}")" && pwd)"
+fi
+if [ -n "$work_dir_arg" ]; then
+	if [ ! -d "$work_dir_arg" ]; then
+		mkdir -p "$work_dir_arg"
+		work_dir_created=true
+	else
+		work_dir_created=false
+	fi
+	work_dir="$(cd "$work_dir_arg" && pwd)"
+else
+	work_dir="$scan_dir"
+	work_dir_created=false
 fi
 segments_file="${work_dir}/segments.csv"
 
-# Scan all MKV files (recursively from working dir) for their segment UIDs
-mapfile -t all_mkv < <(find "$work_dir" -type f -name '*.mkv' | sort)
+# Scan all MKV files (recursively from scan dir) for their segment UIDs
+mapfile -t all_mkv < <(find "$scan_dir" -type f -name '*.mkv' | sort)
 echo 'filename,segmentuid' >"$segments_file"
 for file in "${all_mkv[@]}"; do
 	echo "Reading $file for Segment UID..."
@@ -230,7 +251,8 @@ process_file() {
 	echo "Processing: $input_file -> $output_file"
 	echo "========================================="
 
-	local chapter_file="${input_file%.*}.chapters.csv"
+	local chapter_file
+	chapter_file="${work_dir}/$(basename "${input_file%.*}").chapters.csv"
 	echo 'chapter,uid,start,end,segmentuid' >"$chapter_file"
 
 	# Save each chapter's info into the array
@@ -277,7 +299,7 @@ function print_chapter() {
 	echo "Remote segmentuids found. Proceeding."
 
 	local temp_dir
-	temp_dir=$(mktemp -d)
+	temp_dir=$(mktemp -d "${work_dir}/tmp.XXXXXXXXXX")
 
 	# --- Read chapters into arrays ---
 	local -a ch_uids=() ch_starts=() ch_ends=() ch_segments=()
@@ -450,7 +472,7 @@ echo "Failed:    $fail"
 # Cleanup generated files if requested
 if [ "$clean_chapters" = true ]; then
 	for infile in "${input_files[@]}"; do
-		local_csv="${infile%.*}.chapters.csv"
+		local_csv="${work_dir}/$(basename "${infile%.*}").chapters.csv"
 		if [ -f "$local_csv" ]; then
 			rm -v "$local_csv"
 		fi
@@ -458,4 +480,9 @@ if [ "$clean_chapters" = true ]; then
 fi
 if [ "$clean_segments" = true ] && [ -f "$segments_file" ]; then
 	rm -v "$segments_file"
+fi
+
+# Remove work directory if it was created by this script and is now empty
+if [ "$work_dir_created" = true ] && [ -d "$work_dir" ]; then
+	rmdir "$work_dir" 2>/dev/null && echo "Removed empty work directory: $work_dir"
 fi
