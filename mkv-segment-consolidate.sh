@@ -24,8 +24,8 @@ Options:
 
 Examples:
   $0 02.mkv
-  $0 02.mkv -o /out/ep2.mkv
-  $0 ./ -o /out/ --exclude '^(SP|ED|OP)'
+  $0 02.mkv -o ./out/ep1.mkv
+  $0 ./ -o ./out/ --exclude '^(SP|ED|OP)'
   $0 ./ --include '^[0-9]' --prepend "My Show - "
 EOF
 	exit 0

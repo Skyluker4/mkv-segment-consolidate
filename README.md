@@ -50,13 +50,13 @@ When both `--include` and `--exclude` are given, `--include` is applied first.
 **Single file with custom output path:**
 
 ```bash
-./mkv-segment-consolidate.sh 02.mkv -o /out/episode_02.mkv
+./mkv-segment-consolidate.sh 02.mkv -o ./out/episode_02.mkv
 ```
 
 **All files in current directory, output to a separate folder:**
 
 ```bash
-./mkv-segment-consolidate.sh ./ -o /out/
+./mkv-segment-consolidate.sh ./ -o ./out/
 ```
 
 **Process only numbered episodes, skip specials:**
@@ -75,7 +75,7 @@ When both `--include` and `--exclude` are given, `--include` is applied first.
 **Multiple specific files:**
 
 ```bash
-./mkv-segment-consolidate.sh 02.mkv 03.mkv 04.mkv -o /out/
+./mkv-segment-consolidate.sh 02.mkv 03.mkv 04.mkv -o ./out/
 ```
 
 ## How It Works
