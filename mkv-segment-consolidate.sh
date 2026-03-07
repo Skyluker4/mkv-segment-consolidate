@@ -20,6 +20,9 @@ Options:
   --exclude <pattern>   Skip files whose name matches this regex.
                         Filters are applied to the filename only (not the path).
                         When both are given, --include is applied first.
+  --clean-chapters      Delete generated *.chapters.csv files when done.
+  --clean-segments      Delete the generated segments.csv file when done.
+  --clean               Delete both *.chapters.csv and segments.csv when done.
   -h, --help            Show this help message and exit.
 
 Examples:
@@ -43,6 +46,8 @@ title_prepend=""
 title_append=""
 include_pattern=""
 exclude_pattern=""
+clean_chapters=false
+clean_segments=false
 while [ $# -gt 0 ]; do
 	case "$1" in
 	-h | --help)
@@ -67,6 +72,16 @@ while [ $# -gt 0 ]; do
 	--exclude)
 		shift
 		exclude_pattern="$1"
+		;;
+	--clean-chapters)
+		clean_chapters=true
+		;;
+	--clean-segments)
+		clean_segments=true
+		;;
+	--clean)
+		clean_chapters=true
+		clean_segments=true
 		;;
 	*)
 		input_args+=("$1")
@@ -431,3 +446,16 @@ echo "Processed: ${#input_files[@]} file(s)"
 echo "Merged:    $success"
 echo "Skipped:   $skipped (no remote segments)"
 echo "Failed:    $fail"
+
+# Cleanup generated files if requested
+if [ "$clean_chapters" = true ]; then
+	for infile in "${input_files[@]}"; do
+		local_csv="${infile%.*}.chapters.csv"
+		if [ -f "$local_csv" ]; then
+			rm -v "$local_csv"
+		fi
+	done
+fi
+if [ "$clean_segments" = true ] && [ -f "$segments_file" ]; then
+	rm -v "$segments_file"
+fi
