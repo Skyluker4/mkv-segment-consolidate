@@ -27,7 +27,7 @@ Options:
                         May overwrite the original if no -o is given.
   --list                List files with remote segment references and exit.
   --work-dir <path>     Set the working directory for segments.csv and temp files.
-                        Defaults to the input directory.
+                        Defaults to a temporary directory.
   -h, --help            Show this help message and exit.
 
 Examples:
@@ -206,8 +206,8 @@ if [ -n "$work_dir_arg" ]; then
 	fi
 	work_dir="$(cd "$work_dir_arg" && pwd)"
 else
-	work_dir="$scan_dir"
-	work_dir_created=false
+	work_dir=$(mktemp -d)
+	work_dir_created=true
 fi
 segments_file="${work_dir}/segments.csv"
 
@@ -503,6 +503,9 @@ for infile in "${input_files[@]}"; do
 done
 
 if [ "$list_only" = true ]; then
+	if [ "$work_dir_created" = true ] && [ -d "$work_dir" ]; then
+		rm -rf "$work_dir" 2>/dev/null
+	fi
 	exit 0
 fi
 
@@ -528,5 +531,5 @@ fi
 
 # Remove work directory if it was created by this script and is now empty
 if [ "$work_dir_created" = true ] && [ -d "$work_dir" ]; then
-	rmdir "$work_dir" 2>/dev/null && echo "Removed empty work directory: $work_dir"
+	rm -rf "$work_dir" 2>/dev/null
 fi
