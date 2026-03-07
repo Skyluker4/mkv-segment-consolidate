@@ -1,0 +1,4 @@
+# Disable line-length for prose-heavy markdown
+MD013: false
+# Disable table column alignment style enforcement
+MD060: false

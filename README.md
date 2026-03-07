@@ -15,59 +15,65 @@ This script resolves those external references by extracting the relevant portio
 
 ## Usage
 
-```
+```bash
 ./fix.sh <input_files_or_dir...> [options]
 ```
 
 ### Arguments
 
-| Argument | Description |
-|----------|-------------|
+| Argument             | Description                                                                 |
+| -------------------- | --------------------------------------------------------------------------- |
 | `input_files_or_dir` | One or more MKV files or directories. Directories are searched recursively. |
 
 ### Options
 
-| Option | Description |
-|--------|-------------|
-| `-o <path>` | Output file (single input) or directory (multiple inputs). Defaults to `<input>.merged.mkv` alongside the original. |
-| `--prepend <prefix>` | Prepend a string to the output file's title metadata. |
-| `--append <suffix>` | Append a string to the output file's title metadata. |
-| `--include <pattern>` | Only process files whose filename matches this regex. |
-| `--exclude <pattern>` | Skip files whose filename matches this regex. |
-| `-h`, `--help` | Show help and exit. |
+| Option                | Description                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `-o <path>`           | Output file (single input) or directory (multiple inputs). Defaults to `<input>.merged.mkv` alongside the original. |
+| `--prepend <prefix>`  | Prepend a string to the output file's title metadata.                                                               |
+| `--append <suffix>`   | Append a string to the output file's title metadata.                                                                |
+| `--include <pattern>` | Only process files whose filename matches this regular expression.                                                  |
+| `--exclude <pattern>` | Skip files whose filename matches this regular expression.                                                          |
+| `-h`, `--help`        | Show help and exit.                                                                                                 |
 
 When both `--include` and `--exclude` are given, `--include` is applied first.
 
 ## Examples
 
 **Single file:**
+
 ```bash
 ./fix.sh 02.mkv
 # Output: 02.merged.mkv
 ```
 
 **Single file with custom output path:**
+
 ```bash
 ./fix.sh 02.mkv -o /out/episode_02.mkv
 ```
 
 **All files in current directory, output to a separate folder:**
+
 ```bash
 ./fix.sh ./ -o /out/
 ```
 
 **Process only numbered episodes, skip specials:**
+
 ```bash
 ./fix.sh ./ --include '^[0-9]' --exclude '^(SP|ED|OP)'
 ```
 
 **Add title metadata:**
+
 ```bash
 ./fix.sh ./ --prepend "My Show - " --append " [BD]"
 # e.g. file 02.mkv gets title "My Show - 02 [BD]"
 ```
 
 **Multiple specific files:**
+
 ```bash
 ./fix.sh 02.mkv 03.mkv 04.mkv -o /out/
 ```
