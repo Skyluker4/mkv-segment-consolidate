@@ -20,9 +20,9 @@ Options:
   --exclude <pattern>   Skip files whose name matches this regex.
                         Filters are applied to the filename only (not the path).
                         When both are given, --include is applied first.
-  --clean-chapters      Delete generated *.chapters.csv files when done.
+  --clean-chapters      Delete generated *.chapters.tsv files when done.
   --clean-segments      Delete the generated segments.csv file when done.
-  --clean               Delete both *.chapters.csv and segments.csv when done.
+  --clean               Delete both *.chapters.tsv and segments.csv when done.
   --in-place            Omit .merged from the output filename.
                         May overwrite the original if no -o is given.
   --list                List files with remote segment references and exit.
@@ -271,19 +271,21 @@ process_file() {
 	fi
 
 	local chapter_file
-	chapter_file="${work_dir}/$(basename "${input_file%.*}").chapters.csv"
-	echo 'chapter,uid,start,end,segmentuid' >"$chapter_file"
+	chapter_file="${work_dir}/$(basename "${input_file%.*}").chapters.tsv"
+	printf 'chapter\tuid\tstart\tend\tsegmentuid\tname\tlanguage\n' >"$chapter_file"
 
-	# Save each chapter's info into the array
+	# Save each chapter's info into the tab-separated file
 	mkvinfo "$input_file" | awk '
-BEGIN { chapter_number = 1 }
+BEGIN { chapter_number = 1; OFS="\t" }
 /Chapter UID/ && !uid_set {uid=$NF; uid_set=1}
 /Chapter time start/ {start=$NF}
 /Chapter time end/ {end=$NF}
 /Chapter segment UID/ {segment=$0; sub(/.*: /, "", segment)}
+/Chapter string/ && !name_set {name=$0; sub(/.*Chapter string: /, "", name); name_set=1}
+/Chapter language/ && !lang_set {lang=$NF; lang_set=1}
 /Chapter atom/ && start != "" && end != "" && uid != "" {
   print_chapter()
-  start=""; end=""; segment=""; uid=""; uid_set=0
+  start=""; end=""; segment=""; uid=""; uid_set=0; name=""; name_set=0; lang=""; lang_set=0
 }
 END {
   if (start != "" && end != "" && uid != "") {
@@ -291,24 +293,15 @@ END {
   }
 }
 function print_chapter() {
-  printf "Chapter %d UID: %s Start: %s End: %s", chapter_number, uid, start, end;
-  if (segment != "") {
-    printf ", Segment UID: %s", segment;
-  }
-  print ""
+  print chapter_number, uid, start, end, segment, name, lang
   chapter_number++
-}' | while read -r chapter_info; do
-		chapter=$(echo "$chapter_info" | awk '{print $2}')
-		uid=$(echo "$chapter_info" | awk '{print $4}')
-		start=$(echo "$chapter_info" | awk '{print $6}')
-		end=$(echo "$chapter_info" | awk '{print $8}')
-		segment=$(echo "$chapter_info" | awk '{for(i=11; i<=NF; i++) printf "%s ", $i; printf "\n"}' | sed 's/ $//')
-		echo "$chapter,$uid,$start,$end$segment" >>"$chapter_file"
+}' | while IFS=$'\t' read -r chapter uid start end segment name lang; do
+		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$chapter" "$uid" "$start" "$end" "$segment" "$name" "$lang" >>"$chapter_file"
 	done
 
 	# If the video does not have any remote segmentuids, skip
 	local segmentuid_found
-	segmentuid_found=$(awk -F, 'NR > 1 && $5 != ""' "$chapter_file")
+	segmentuid_found=$(awk -F'\t' 'NR > 1 && $5 != ""' "$chapter_file")
 
 	if [[ -z "$segmentuid_found" ]]; then
 		if [ "$list_only" = true ]; then
@@ -320,7 +313,7 @@ function print_chapter() {
 
 	if [ "$list_only" = true ]; then
 		echo "$input_file"
-		while IFS=',' read -r ch _ _ _ seguid; do
+		while IFS=$'\t' read -r ch _ _ _ seguid _; do
 			[[ "$ch" == "chapter" ]] && continue
 			[[ -z "$seguid" ]] && continue
 			local remote_file
@@ -340,14 +333,16 @@ function print_chapter() {
 	temp_dir=$(mktemp -d "${work_dir}/tmp.XXXXXXXXXX")
 
 	# --- Read chapters into arrays ---
-	local -a ch_uids=() ch_starts=() ch_ends=() ch_segments=()
+	local -a ch_uids=() ch_starts=() ch_ends=() ch_segments=() ch_names=() ch_langs=()
 	local idx=0
-	while IFS=',' read -r chapter uid start end segmentuid; do
+	while IFS=$'\t' read -r chapter uid start end segmentuid name lang; do
 		[[ "$chapter" == "chapter" ]] && continue
 		ch_uids[idx]="$uid"
 		ch_starts[idx]="$start"
 		ch_ends[idx]="$end"
 		ch_segments[idx]="${segmentuid:-}"
+		ch_names[idx]="${name:-}"
+		ch_langs[idx]="${lang:-}"
 		((idx++))
 	done <"$chapter_file"
 	local total_chapters=$idx
@@ -449,6 +444,20 @@ function print_chapter() {
 			echo "      <ChapterTimeStart>${new_ch_starts[$c]}</ChapterTimeStart>"
 			echo "      <ChapterTimeEnd>${new_ch_ends[$c]}</ChapterTimeEnd>"
 			echo "      <ChapterUID>${ch_uids[$c]}</ChapterUID>"
+			if [ -n "${ch_names[$c]}" ]; then
+				# Escape XML special characters in chapter name
+				local ch_name_escaped="${ch_names[$c]}"
+				ch_name_escaped="${ch_name_escaped//&/&amp;}"
+				ch_name_escaped="${ch_name_escaped//</&lt;}"
+				ch_name_escaped="${ch_name_escaped//>/&gt;}"
+				ch_name_escaped="${ch_name_escaped//\"/&quot;}"
+				echo '      <ChapterDisplay>'
+				echo "        <ChapterString>${ch_name_escaped}</ChapterString>"
+				if [ -n "${ch_langs[$c]}" ]; then
+					echo "        <ChapterLanguage>${ch_langs[$c]}</ChapterLanguage>"
+				fi
+				echo '      </ChapterDisplay>'
+			fi
 			echo '    </ChapterAtom>'
 		done
 		echo '  </EditionEntry>'
@@ -519,7 +528,7 @@ echo "Failed:    $fail"
 # Cleanup generated files if requested
 if [ "$clean_chapters" = true ]; then
 	for infile in "${input_files[@]}"; do
-		local_csv="${work_dir}/$(basename "${infile%.*}").chapters.csv"
+		local_csv="${work_dir}/$(basename "${infile%.*}").chapters.tsv"
 		if [ -f "$local_csv" ]; then
 			rm -v "$local_csv"
 		fi
