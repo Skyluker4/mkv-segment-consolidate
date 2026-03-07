@@ -14,7 +14,7 @@ _A clear and concise description of what the bug is._
 
 _Steps to reproduce the behavior:_
 
-1. _Run `fix.sh` with options '...'_
+1. _Run `mkv-segment-consolidate.sh` with options '...'_
 2. _See the error._
 
 ## Expected Behavior
