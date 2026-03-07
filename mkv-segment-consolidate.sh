@@ -25,6 +25,7 @@ Options:
   --clean               Delete both *.chapters.csv and segments.csv when done.
   --in-place            Omit .merged from the output filename.
                         May overwrite the original if no -o is given.
+  --list                List files with remote segment references and exit.
   --work-dir <path>     Set the working directory for segments.csv and temp files.
                         Defaults to the input directory.
   -h, --help            Show this help message and exit.
@@ -53,6 +54,7 @@ exclude_pattern=""
 clean_chapters=false
 clean_segments=false
 in_place=false
+list_only=false
 work_dir_arg=""
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -91,6 +93,9 @@ while [ $# -gt 0 ]; do
 		;;
 	--in-place)
 		in_place=true
+		;;
+	--list)
+		list_only=true
 		;;
 	--work-dir)
 		shift
@@ -210,7 +215,9 @@ segments_file="${work_dir}/segments.csv"
 mapfile -t all_mkv < <(find "$scan_dir" -type f -name '*.mkv' | sort)
 echo 'filename,segmentuid' >"$segments_file"
 for file in "${all_mkv[@]}"; do
-	echo "Reading $file for Segment UID..."
+	if [ "$list_only" != true ]; then
+		echo "Reading $file for Segment UID..."
+	fi
 	segment_uid=$(mkvinfo "$file" | awk '
     /Segment:/ { in_segment=1 }
     /Chapters/ { in_segment=0 }
@@ -256,10 +263,12 @@ process_file() {
 	local input_file="$1"
 	local output_file="$2"
 
-	echo ""
-	echo "========================================="
-	echo "Processing: $input_file -> $output_file"
-	echo "========================================="
+	if [ "$list_only" != true ]; then
+		echo ""
+		echo "========================================="
+		echo "Processing: $input_file -> $output_file"
+		echo "========================================="
+	fi
 
 	local chapter_file
 	chapter_file="${work_dir}/$(basename "${input_file%.*}").chapters.csv"
@@ -302,7 +311,26 @@ function print_chapter() {
 	segmentuid_found=$(awk -F, 'NR > 1 && $5 != ""' "$chapter_file")
 
 	if [[ -z "$segmentuid_found" ]]; then
+		if [ "$list_only" = true ]; then
+			return 0
+		fi
 		echo "No remote segmentuids found in $input_file. Skipping."
+		return 0
+	fi
+
+	if [ "$list_only" = true ]; then
+		echo "$input_file"
+		while IFS=',' read -r ch _ _ _ seguid; do
+			[[ "$ch" == "chapter" ]] && continue
+			[[ -z "$seguid" ]] && continue
+			local remote_file
+			remote_file=$(find_file_by_segmentuid "$seguid")
+			if [[ -n "$remote_file" ]]; then
+				echo "  Chapter $ch -> $(basename "$remote_file") [$seguid]"
+			else
+				echo "  Chapter $ch -> (not found) [$seguid]"
+			fi
+		done <"$chapter_file"
 		return 0
 	fi
 
@@ -462,7 +490,9 @@ for infile in "${input_files[@]}"; do
 	out=$(resolve_output "$infile")
 	if process_file "$infile" "$out"; then
 		# Check if it was skipped (no remote segments) vs actually merged
-		if [ -f "$out" ]; then
+		if [ "$list_only" = true ]; then
+			: # listing mode — no counting
+		elif [ -f "$out" ]; then
 			((success++))
 		else
 			((skipped++))
@@ -471,6 +501,10 @@ for infile in "${input_files[@]}"; do
 		((fail++))
 	fi
 done
+
+if [ "$list_only" = true ]; then
+	exit 0
+fi
 
 echo ""
 echo "===== Summary ====="
