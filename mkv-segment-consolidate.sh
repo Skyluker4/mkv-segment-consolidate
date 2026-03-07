@@ -23,6 +23,8 @@ Options:
   --clean-chapters      Delete generated *.chapters.csv files when done.
   --clean-segments      Delete the generated segments.csv file when done.
   --clean               Delete both *.chapters.csv and segments.csv when done.
+  --in-place            Omit .merged from the output filename.
+                        May overwrite the original if no -o is given.
   --work-dir <path>     Set the working directory for segments.csv and temp files.
                         Defaults to the input directory.
   -h, --help            Show this help message and exit.
@@ -50,6 +52,7 @@ include_pattern=""
 exclude_pattern=""
 clean_chapters=false
 clean_segments=false
+in_place=false
 work_dir_arg=""
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -85,6 +88,9 @@ while [ $# -gt 0 ]; do
 	--clean)
 		clean_chapters=true
 		clean_segments=true
+		;;
+	--in-place)
+		in_place=true
 		;;
 	--work-dir)
 		shift
@@ -147,6 +153,10 @@ fi
 # Resolve output path for a given input file
 resolve_output() {
 	local infile="$1"
+	local suffix=".merged.mkv"
+	if [ "$in_place" = true ]; then
+		suffix=".mkv"
+	fi
 	if [ -n "$output_arg" ]; then
 		if [ -d "$output_arg" ] || [[ -n "$input_dir" ]]; then
 			# Preserve subdirectory structure relative to input_dir
@@ -157,20 +167,20 @@ resolve_output() {
 				local outbase="${output_arg%/}"
 				if [ "$reldir" != "." ]; then
 					mkdir -p "$outbase/$reldir"
-					echo "$outbase/$reldir/$(basename "${infile%.*}.merged.mkv")"
+					echo "$outbase/$reldir/$(basename "${infile%.*}${suffix}")"
 				else
 					mkdir -p "$outbase"
-					echo "$outbase/$(basename "${infile%.*}.merged.mkv")"
+					echo "$outbase/$(basename "${infile%.*}${suffix}")"
 				fi
 			else
-				echo "${output_arg%/}/$(basename "${infile%.*}.merged.mkv")"
+				echo "${output_arg%/}/$(basename "${infile%.*}${suffix}")"
 			fi
 		else
 			# Exact file path (only valid for single-file mode)
 			echo "$output_arg"
 		fi
 	else
-		echo "${infile%.*}.merged.mkv"
+		echo "${infile%.*}${suffix}"
 	fi
 }
 
