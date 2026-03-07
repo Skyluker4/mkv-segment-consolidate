@@ -275,7 +275,7 @@ process_file() {
 	printf 'chapter\tuid\tstart\tend\tsegmentuid\tname\tlanguage\n' >"$chapter_file"
 
 	# Save each chapter's info into the tab-separated file
-	mkvinfo "$input_file" | awk '
+	mkvinfo "$input_file" | awk -v outfile="$chapter_file" '
 BEGIN { chapter_number = 1; OFS="\t" }
 /Chapter UID/ && !uid_set {uid=$NF; uid_set=1}
 /Chapter time start/ {start=$NF}
@@ -293,11 +293,9 @@ END {
   }
 }
 function print_chapter() {
-  print chapter_number, uid, start, end, segment, name, lang
+  print chapter_number, uid, start, end, segment, name, lang >> outfile
   chapter_number++
-}' | while IFS=$'\t' read -r chapter uid start end segment name lang; do
-		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$chapter" "$uid" "$start" "$end" "$segment" "$name" "$lang" >>"$chapter_file"
-	done
+}'
 
 	# If the video does not have any remote segmentuids, skip
 	local segmentuid_found
@@ -313,8 +311,12 @@ function print_chapter() {
 
 	if [ "$list_only" = true ]; then
 		echo "$input_file"
-		while IFS=$'\t' read -r ch _ _ _ seguid _; do
+		while IFS= read -r _line; do
+			_r="$_line"
+			ch="${_r%%$'\t'*}"; _r="${_r#*$'\t'}"
 			[[ "$ch" == "chapter" ]] && continue
+			_r="${_r#*$'\t'}"; _r="${_r#*$'\t'}"; _r="${_r#*$'\t'}" # skip uid, start, end
+			seguid="${_r%%$'\t'*}"
 			[[ -z "$seguid" ]] && continue
 			local remote_file
 			remote_file=$(find_file_by_segmentuid "$seguid")
@@ -335,14 +337,22 @@ function print_chapter() {
 	# --- Read chapters into arrays ---
 	local -a ch_uids=() ch_starts=() ch_ends=() ch_segments=() ch_names=() ch_langs=()
 	local idx=0
-	while IFS=$'\t' read -r chapter uid start end segmentuid name lang; do
-		[[ "$chapter" == "chapter" ]] && continue
-		ch_uids[idx]="$uid"
-		ch_starts[idx]="$start"
-		ch_ends[idx]="$end"
-		ch_segments[idx]="${segmentuid:-}"
-		ch_names[idx]="${name:-}"
-		ch_langs[idx]="${lang:-}"
+	while IFS= read -r _line; do
+		_r="$_line"
+		_f1="${_r%%$'\t'*}"; _r="${_r#*$'\t'}"
+		[[ "$_f1" == "chapter" ]] && continue
+		_f2="${_r%%$'\t'*}"; _r="${_r#*$'\t'}"
+		_f3="${_r%%$'\t'*}"; _r="${_r#*$'\t'}"
+		_f4="${_r%%$'\t'*}"; _r="${_r#*$'\t'}"
+		_f5="${_r%%$'\t'*}"; _r="${_r#*$'\t'}"
+		_f6="${_r%%$'\t'*}"; _r="${_r#*$'\t'}"
+		_f7="$_r"
+		ch_uids[idx]="$_f2"
+		ch_starts[idx]="$_f3"
+		ch_ends[idx]="$_f4"
+		ch_segments[idx]="$_f5"
+		ch_names[idx]="$_f6"
+		ch_langs[idx]="$_f7"
 		((idx++))
 	done <"$chapter_file"
 	local total_chapters=$idx
