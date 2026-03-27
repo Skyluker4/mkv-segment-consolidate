@@ -339,9 +339,12 @@ function print_chapter() {
 		echo "$input_file"
 		while IFS= read -r _line; do
 			_r="$_line"
-			ch="${_r%%$'\t'*}"; _r="${_r#*$'\t'}"
+			ch="${_r%%$'\t'*}"
+			_r="${_r#*$'\t'}"
 			[[ "$ch" == "chapter" ]] && continue
-			_r="${_r#*$'\t'}"; _r="${_r#*$'\t'}"; _r="${_r#*$'\t'}" # skip uid, start, end
+			_r="${_r#*$'\t'}"
+			_r="${_r#*$'\t'}"
+			_r="${_r#*$'\t'}" # skip uid, start, end
 			seguid="${_r%%$'\t'*}"
 			[[ -z "$seguid" ]] && continue
 			local remote_file
@@ -365,13 +368,19 @@ function print_chapter() {
 	local idx=0
 	while IFS= read -r _line; do
 		_r="$_line"
-		_f1="${_r%%$'\t'*}"; _r="${_r#*$'\t'}"
+		_f1="${_r%%$'\t'*}"
+		_r="${_r#*$'\t'}"
 		[[ "$_f1" == "chapter" ]] && continue
-		_f2="${_r%%$'\t'*}"; _r="${_r#*$'\t'}"
-		_f3="${_r%%$'\t'*}"; _r="${_r#*$'\t'}"
-		_f4="${_r%%$'\t'*}"; _r="${_r#*$'\t'}"
-		_f5="${_r%%$'\t'*}"; _r="${_r#*$'\t'}"
-		_f6="${_r%%$'\t'*}"; _r="${_r#*$'\t'}"
+		_f2="${_r%%$'\t'*}"
+		_r="${_r#*$'\t'}"
+		_f3="${_r%%$'\t'*}"
+		_r="${_r#*$'\t'}"
+		_f4="${_r%%$'\t'*}"
+		_r="${_r#*$'\t'}"
+		_f5="${_r%%$'\t'*}"
+		_r="${_r#*$'\t'}"
+		_f6="${_r%%$'\t'*}"
+		_r="${_r#*$'\t'}"
 		_f7="$_r"
 		ch_uids[idx]="$_f2"
 		ch_starts[idx]="$_f3"
@@ -421,7 +430,7 @@ function print_chapter() {
 	# track counts. This prevents --append-to from skipping files, which
 	# causes mkvmerge to miscalculate timestamps for the entire file.
 	local empty_ass="$temp_dir/empty_filler.ass"
-	printf '[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n' > "$empty_ass"
+	printf '[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n' >"$empty_ass"
 
 	# --- Extract each group into a temporary MKV segment ---
 	local -a segment_files=()
@@ -445,7 +454,7 @@ function print_chapter() {
 			for ((ti = 0; ti < ${#input_tids[@]}; ti++)); do
 				_lm="${_lm:+$_lm }$ti"
 			done
-			seg_master_maps[$g]="$_lm"
+			seg_master_maps[g]="$_lm"
 		else
 			local remote_uid="${ch_segments[$si]}"
 			local remote_file
@@ -472,15 +481,15 @@ function print_chapter() {
 			local -a matched_remote_tids=()
 			local -a _used_remote=()
 			for ((ri = 0; ri < ${#remote_types[@]}; ri++)); do
-				_used_remote[$ri]=false
+				_used_remote[ri]=false
 			done
 
 			# Pass 1: match by absolute track position when types agree
 			for ((ti = 0; ti < ${#input_types[@]}; ti++)); do
-				matched_remote_tids[$ti]="-"
+				matched_remote_tids[ti]="-"
 				if [ $ti -lt ${#remote_types[@]} ] && [[ "${input_types[$ti]}" == "${remote_types[$ti]}" ]]; then
-					matched_remote_tids[$ti]="${remote_tids[$ti]}"
-					_used_remote[$ti]=true
+					matched_remote_tids[ti]="${remote_tids[ti]}"
+					_used_remote[ti]=true
 				fi
 			done
 
@@ -490,8 +499,8 @@ function print_chapter() {
 				local wanted="${input_types[$ti]}"
 				for ((ri = 0; ri < ${#remote_types[@]}; ri++)); do
 					if [[ "${remote_types[$ri]}" == "$wanted" ]] && [ "${_used_remote[$ri]}" = false ]; then
-						matched_remote_tids[$ti]="${remote_tids[$ri]}"
-						_used_remote[$ri]=true
+						matched_remote_tids[ti]="${remote_tids[ri]}"
+						_used_remote[ri]=true
 						break
 					fi
 				done
@@ -515,8 +524,8 @@ function print_chapter() {
 			# Build track selection and ordering flags
 			local -a video_tids=() audio_tids=() sub_tids=()
 			local -a track_order_parts=()
-			local _filler_src=1  # source index for filler ASS files in mkvmerge
-			local -a _filler_order=()  # track-order entries for filler tracks
+			local _filler_src=1       # source index for filler ASS files in mkvmerge
+			local -a _filler_order=() # track-order entries for filler tracks
 
 			for ((ti = 0; ti < ${#matched_remote_tids[@]}; ti++)); do
 				local rtid="${matched_remote_tids[$ti]}"
@@ -531,9 +540,9 @@ function print_chapter() {
 				fi
 				track_order_parts+=("0:${rtid}")
 				case "${input_types[$ti]}" in
-					video) video_tids+=("$rtid") ;;
-					audio) audio_tids+=("$rtid") ;;
-					subtitles) sub_tids+=("$rtid") ;;
+				video) video_tids+=("$rtid") ;;
+				audio) audio_tids+=("$rtid") ;;
+				subtitles) sub_tids+=("$rtid") ;;
 				esac
 			done
 
@@ -555,22 +564,34 @@ function print_chapter() {
 
 			local -a track_args=()
 			if [ ${#video_tids[@]} -gt 0 ]; then
-				track_args+=(--video-tracks "$(IFS=,; echo "${video_tids[*]}")")
+				track_args+=(--video-tracks "$(
+					IFS=,
+					echo "${video_tids[*]}"
+				)")
 			else
 				track_args+=(--no-video)
 			fi
 			if [ ${#audio_tids[@]} -gt 0 ]; then
-				track_args+=(--audio-tracks "$(IFS=,; echo "${audio_tids[*]}")")
+				track_args+=(--audio-tracks "$(
+					IFS=,
+					echo "${audio_tids[*]}"
+				)")
 			else
 				track_args+=(--no-audio)
 			fi
 			if [ ${#sub_tids[@]} -gt 0 ]; then
-				track_args+=(--subtitle-tracks "$(IFS=,; echo "${sub_tids[*]}")")
+				track_args+=(--subtitle-tracks "$(
+					IFS=,
+					echo "${sub_tids[*]}"
+				)")
 			else
 				track_args+=(--no-subtitles)
 			fi
 			if [ ${#track_order_parts[@]} -gt 0 ]; then
-				track_args+=(--track-order "$(IFS=,; echo "${track_order_parts[*]}")")
+				track_args+=(--track-order "$(
+					IFS=,
+					echo "${track_order_parts[*]}"
+				)")
 			fi
 
 			echo "  Track selection: ${track_args[*]}"
@@ -590,7 +611,7 @@ function print_chapter() {
 					_rm="${_rm:+$_rm }$ti"
 				fi
 			done
-			seg_master_maps[$g]="$_rm"
+			seg_master_maps[g]="$_rm"
 		fi
 
 		# mkvmerge may append -001 to the output filename when --split is used
@@ -673,8 +694,8 @@ function print_chapter() {
 				_tids="${_tids:+$_tids }$tid"
 				_types="${_types:+$_types }$ttype"
 			done < <(get_track_layout "${segment_files[$g]}")
-			_seg_tids[$g]="$_tids"
-			_seg_types[$g]="$_types"
+			_seg_tids[g]="$_tids"
+			_seg_types[g]="$_types"
 		done
 
 		# Map each segment track to a master track index using the per-segment
@@ -712,7 +733,10 @@ function print_chapter() {
 		done
 
 		if [ ${#append_parts[@]} -gt 0 ]; then
-			append_to_arg=$(IFS=,; echo "${append_parts[*]}")
+			append_to_arg=$(
+				IFS=,
+				echo "${append_parts[*]}"
+			)
 		fi
 	fi
 
