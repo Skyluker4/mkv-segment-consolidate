@@ -415,6 +415,14 @@ function print_chapter() {
 	local total_groups=$gidx
 	echo "Built $total_groups segment groups."
 
+	# --- Create empty ASS filler for padding remote segments ---
+	# When a remote segment has fewer subtitle tracks than the input file,
+	# we pad it with empty subtitle tracks so ALL segments have matching
+	# track counts. This prevents --append-to from skipping files, which
+	# causes mkvmerge to miscalculate timestamps for the entire file.
+	local empty_ass="$temp_dir/empty_filler.ass"
+	printf '[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n' > "$empty_ass"
+
 	# --- Extract each group into a temporary MKV segment ---
 	local -a segment_files=()
 	local -a seg_master_maps=()
@@ -496,14 +504,31 @@ function print_chapter() {
 					_rm="${_rm:+$_rm }$ti"
 				fi
 			done
-			seg_master_maps[$g]="$_rm"
+			# Count missing subtitle tracks to determine if padding is needed
+			local _missing_subs=0
+			for ((ti = 0; ti < ${#input_types[@]}; ti++)); do
+				if [[ "${input_types[$ti]}" == "subtitles" ]] && [ "${matched_remote_tids[$ti]}" = "-" ]; then
+					((_missing_subs++))
+				fi
+			done
 
 			# Build track selection and ordering flags
 			local -a video_tids=() audio_tids=() sub_tids=()
 			local -a track_order_parts=()
+			local _filler_src=1  # source index for filler ASS files in mkvmerge
+			local -a _filler_order=()  # track-order entries for filler tracks
+
 			for ((ti = 0; ti < ${#matched_remote_tids[@]}; ti++)); do
 				local rtid="${matched_remote_tids[$ti]}"
-				[ "$rtid" = "-" ] && continue
+				if [ "$rtid" = "-" ]; then
+					# If this is a missing subtitle track and we're padding,
+					# add a filler entry for the track order
+					if [[ "${input_types[$ti]}" == "subtitles" ]] && [ $_missing_subs -gt 0 ]; then
+						_filler_order+=("${_filler_src}:0")
+						((_filler_src++))
+					fi
+					continue
+				fi
 				track_order_parts+=("0:${rtid}")
 				case "${input_types[$ti]}" in
 					video) video_tids+=("$rtid") ;;
@@ -511,6 +536,22 @@ function print_chapter() {
 					subtitles) sub_tids+=("$rtid") ;;
 				esac
 			done
+
+			# Interleave filler entries into the track order at the right positions
+			if [ $_missing_subs -gt 0 ]; then
+				local -a _final_order=()
+				local _fi=0 _ri=0
+				for ((ti = 0; ti < ${#matched_remote_tids[@]}; ti++)); do
+					if [ "${matched_remote_tids[$ti]}" = "-" ] && [[ "${input_types[$ti]}" == "subtitles" ]]; then
+						_final_order+=("${_filler_order[$_fi]}")
+						((_fi++))
+					elif [ "${matched_remote_tids[$ti]}" != "-" ]; then
+						_final_order+=("${track_order_parts[$_ri]}")
+						((_ri++))
+					fi
+				done
+				track_order_parts=("${_final_order[@]}")
+			fi
 
 			local -a track_args=()
 			if [ ${#video_tids[@]} -gt 0 ]; then
@@ -533,8 +574,23 @@ function print_chapter() {
 			fi
 
 			echo "  Track selection: ${track_args[*]}"
-			mkvmerge -o "$seg_file" --no-chapters "${track_args[@]}" \
-				--split "parts:${start_ts}-${end_ts}" "$remote_file"
+
+			# Build mkvmerge command: remote file + empty ASS fillers for missing subs
+			local -a mux_cmd=(mkvmerge -o "$seg_file" --no-chapters "${track_args[@]}"
+				--split "parts:${start_ts}-${end_ts}" "$remote_file")
+			for ((_p = 0; _p < _missing_subs; _p++)); do
+				mux_cmd+=("$empty_ass")
+			done
+			"${mux_cmd[@]}"
+
+			# Update seg_master_maps: with padding, ALL master tracks are now present
+			local _rm=""
+			for ((ti = 0; ti < ${#input_types[@]}; ti++)); do
+				if [ "${matched_remote_tids[$ti]}" != "-" ] || [[ "${input_types[$ti]}" == "subtitles" ]]; then
+					_rm="${_rm:+$_rm }$ti"
+				fi
+			done
+			seg_master_maps[$g]="$_rm"
 		fi
 
 		# mkvmerge may append -001 to the output filename when --split is used
