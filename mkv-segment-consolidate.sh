@@ -417,6 +417,7 @@ function print_chapter() {
 
 	# --- Extract each group into a temporary MKV segment ---
 	local -a segment_files=()
+	local -a seg_master_maps=()
 	local -a new_ch_starts=() new_ch_ends=()
 	local running_ns=0
 
@@ -431,6 +432,12 @@ function print_chapter() {
 			echo "[$((g + 1))/$total_groups] Local chapters $((si + 1))-$((ei + 1)): $start_ts -> $end_ts from $input_file"
 			mkvmerge -o "$seg_file" --no-chapters \
 				--split "parts:${start_ts}-${end_ts}" "$input_file"
+			# Local segments preserve all input tracks; master indices are trivial
+			local _lm=""
+			for ((ti = 0; ti < ${#input_tids[@]}; ti++)); do
+				_lm="${_lm:+$_lm }$ti"
+			done
+			seg_master_maps[$g]="$_lm"
 		else
 			local remote_uid="${ch_segments[$si]}"
 			local remote_file
@@ -442,7 +449,12 @@ function print_chapter() {
 			fi
 			echo "[$((g + 1))/$total_groups] Remote chapter $((si + 1)): $start_ts -> $end_ts from $remote_file"
 
-			# Match remote tracks to input file's track layout by type
+			# Match remote tracks to input file's track layout.
+			# Strategy: first match by absolute position (when types agree at the
+			# same index), then fall back to type-based matching for the rest.
+			# Position-based matching handles the common case where the remote file
+			# has the same track ordering as the input (e.g. both have track 3 as
+			# "Hiryuu" subtitles) even when the intermediate tracks differ in type.
 			local -a remote_tids=() remote_types=()
 			while IFS=: read -r rtid rttype; do
 				remote_tids+=("$rtid")
@@ -450,29 +462,41 @@ function print_chapter() {
 			done < <(get_track_layout "$remote_file")
 
 			local -a matched_remote_tids=()
-			local vid_nth=0 aud_nth=0 sub_nth=0
+			local -a _used_remote=()
+			for ((ri = 0; ri < ${#remote_types[@]}; ri++)); do
+				_used_remote[$ri]=false
+			done
+
+			# Pass 1: match by absolute track position when types agree
 			for ((ti = 0; ti < ${#input_types[@]}; ti++)); do
+				matched_remote_tids[$ti]="-"
+				if [ $ti -lt ${#remote_types[@]} ] && [[ "${input_types[$ti]}" == "${remote_types[$ti]}" ]]; then
+					matched_remote_tids[$ti]="${remote_tids[$ti]}"
+					_used_remote[$ti]=true
+				fi
+			done
+
+			# Pass 2: for unmatched input tracks, find first unused remote track of same type
+			for ((ti = 0; ti < ${#input_types[@]}; ti++)); do
+				[ "${matched_remote_tids[$ti]}" != "-" ] && continue
 				local wanted="${input_types[$ti]}"
-				local nth
-				case "$wanted" in
-					video) nth=$vid_nth; ((vid_nth++)) ;;
-					audio) nth=$aud_nth; ((aud_nth++)) ;;
-					subtitles) nth=$sub_nth; ((sub_nth++)) ;;
-					*) continue ;;
-				esac
-				local count=0 found=false
 				for ((ri = 0; ri < ${#remote_types[@]}; ri++)); do
-					if [[ "${remote_types[$ri]}" == "$wanted" ]]; then
-						if [ $count -eq $nth ]; then
-							matched_remote_tids+=("${remote_tids[$ri]}")
-							found=true
-							break
-						fi
-						((count++))
+					if [[ "${remote_types[$ri]}" == "$wanted" ]] && [ "${_used_remote[$ri]}" = false ]; then
+						matched_remote_tids[$ti]="${remote_tids[$ri]}"
+						_used_remote[$ri]=true
+						break
 					fi
 				done
-				[ "$found" != true ] && matched_remote_tids+=("-")
 			done
+
+			# Record which master (input) track indices this segment will contain
+			local _rm=""
+			for ((ti = 0; ti < ${#input_types[@]}; ti++)); do
+				if [ "${matched_remote_tids[$ti]}" != "-" ]; then
+					_rm="${_rm:+$_rm }$ti"
+				fi
+			done
+			seg_master_maps[$g]="$_rm"
 
 			# Build track selection and ordering flags
 			local -a video_tids=() audio_tids=() sub_tids=()
@@ -578,6 +602,64 @@ function print_chapter() {
 
 	echo "Generated chapters XML with recalculated timestamps."
 
+	# --- Build explicit --append-to mappings ---
+	# When remote segments have fewer tracks than local segments (e.g. OVAs with
+	# 2 subtitle tracks referencing an OP that only has 1), mkvmerge's default
+	# auto-mapping fails. We build explicit mappings by matching each segment's
+	# tracks to the input file's "master" layout by type (Nth video/audio/sub).
+	local append_to_arg=""
+	if [ ${#segment_files[@]} -gt 1 ]; then
+		# Cache each segment's track layout
+		local -a _seg_tids=() _seg_types=()
+		for ((g = 0; g < ${#segment_files[@]}; g++)); do
+			local _tids="" _types=""
+			while IFS=: read -r tid ttype; do
+				_tids="${_tids:+$_tids }$tid"
+				_types="${_types:+$_types }$ttype"
+			done < <(get_track_layout "${segment_files[$g]}")
+			_seg_tids[$g]="$_tids"
+			_seg_types[$g]="$_types"
+		done
+
+		# Map each segment track to a master track index using the per-segment
+		# master maps recorded during extraction. seg_master["g:tid"] = master_index.
+		declare -A seg_master=()
+		for ((g = 0; g < ${#segment_files[@]}; g++)); do
+			local -a _st _mm
+			read -ra _st <<<"${_seg_tids[$g]}"
+			read -ra _mm <<<"${seg_master_maps[$g]}"
+			for ((ti = 0; ti < ${#_st[@]}; ti++)); do
+				seg_master["${g}:${_st[$ti]}"]="${_mm[$ti]}"
+			done
+		done
+
+		# For each track in segment g (>0), find the most recent prior segment
+		# that has a track mapping to the same master index.
+		local -a append_parts=()
+		for ((g = 1; g < ${#segment_files[@]}; g++)); do
+			local -a _ct
+			read -ra _ct <<<"${_seg_tids[$g]}"
+			for _cid in "${_ct[@]}"; do
+				local _mi="${seg_master["${g}:${_cid}"]}"
+				[ -z "$_mi" ] && continue
+				for ((pg = g - 1; pg >= 0; pg--)); do
+					local -a _pt
+					read -ra _pt <<<"${_seg_tids[$pg]}"
+					for _pid in "${_pt[@]}"; do
+						if [ "${seg_master["${pg}:${_pid}"]}" = "$_mi" ]; then
+							append_parts+=("${g}:${_cid}:${pg}:${_pid}")
+							break 2
+						fi
+					done
+				done
+			done
+		done
+
+		if [ ${#append_parts[@]} -gt 0 ]; then
+			append_to_arg=$(IFS=,; echo "${append_parts[*]}")
+		fi
+	fi
+
 	# --- Concatenate all segments into the final merged MKV ---
 	local -a merge_args=(-o "$output_file" --chapters "$chapters_xml")
 	# Set file title if prepend/append options were given
@@ -586,6 +668,9 @@ function print_chapter() {
 		base_title=$(basename "${input_file%.*}")
 		local file_title="${title_prepend}${base_title}${title_append}"
 		merge_args+=(--title "$file_title")
+	fi
+	if [ -n "$append_to_arg" ]; then
+		merge_args+=(--append-to "$append_to_arg")
 	fi
 	for ((g = 0; g < ${#segment_files[@]}; g++)); do
 		if [ $g -gt 0 ]; then
@@ -597,8 +682,16 @@ function print_chapter() {
 
 	echo "Merging ${#segment_files[@]} segments into $output_file ..."
 	mkvmerge "${merge_args[@]}"
+	local merge_rc=$?
 
 	rm -rf "$temp_dir"
+
+	# mkvmerge exit codes: 0 = success, 1 = warnings (ok), 2 = error
+	if [ $merge_rc -ge 2 ]; then
+		echo "ERROR: Final merge failed (mkvmerge exit code $merge_rc)"
+		rm -f "$output_file"
+		return 1
+	fi
 	echo "Done! Output: $output_file"
 }
 
