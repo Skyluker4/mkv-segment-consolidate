@@ -258,6 +258,12 @@ ns_to_timestamp() {
 	printf "%02d:%02d:%02d.%09d" "$h" "$m" "$s" "$ns"
 }
 
+# Get ordered track layout of an MKV file.
+# Outputs lines like "0:video", "1:audio", "2:subtitles".
+get_track_layout() {
+	mkvmerge -i "$1" 2>/dev/null | grep '^Track ID' | sed 's/Track ID \([0-9]*\): \([a-z]*\).*/\1:\2/'
+}
+
 # === Process a single input file ===
 process_file() {
 	local input_file="$1"
@@ -358,6 +364,14 @@ function print_chapter() {
 	local total_chapters=$idx
 	echo "Found $total_chapters chapters."
 
+	# --- Get input file track layout for matching remote segments ---
+	local -a input_tids=() input_types=()
+	while IFS=: read -r tid ttype; do
+		input_tids+=("$tid")
+		input_types+=("$ttype")
+	done < <(get_track_layout "$input_file")
+	echo "Input track layout: ${input_types[*]}"
+
 	# --- Group chapters: consecutive local chapters together, remote chapters standalone ---
 	local -a group_types=() group_si=() group_ei=()
 	local gidx=0 i=0
@@ -407,7 +421,75 @@ function print_chapter() {
 				return 1
 			fi
 			echo "[$((g + 1))/$total_groups] Remote chapter $((si + 1)): $start_ts -> $end_ts from $remote_file"
-			mkvmerge -o "$seg_file" --no-chapters \
+
+			# Match remote tracks to input file's track layout by type
+			local -a remote_tids=() remote_types=()
+			while IFS=: read -r rtid rttype; do
+				remote_tids+=("$rtid")
+				remote_types+=("$rttype")
+			done < <(get_track_layout "$remote_file")
+
+			local -a matched_remote_tids=()
+			local vid_nth=0 aud_nth=0 sub_nth=0
+			for ((ti = 0; ti < ${#input_types[@]}; ti++)); do
+				local wanted="${input_types[$ti]}"
+				local nth
+				case "$wanted" in
+					video) nth=$vid_nth; ((vid_nth++)) ;;
+					audio) nth=$aud_nth; ((aud_nth++)) ;;
+					subtitles) nth=$sub_nth; ((sub_nth++)) ;;
+					*) continue ;;
+				esac
+				local count=0 found=false
+				for ((ri = 0; ri < ${#remote_types[@]}; ri++)); do
+					if [[ "${remote_types[$ri]}" == "$wanted" ]]; then
+						if [ $count -eq $nth ]; then
+							matched_remote_tids+=("${remote_tids[$ri]}")
+							found=true
+							break
+						fi
+						((count++))
+					fi
+				done
+				[ "$found" != true ] && matched_remote_tids+=("-")
+			done
+
+			# Build track selection and ordering flags
+			local -a video_tids=() audio_tids=() sub_tids=()
+			local -a track_order_parts=()
+			for ((ti = 0; ti < ${#matched_remote_tids[@]}; ti++)); do
+				local rtid="${matched_remote_tids[$ti]}"
+				[ "$rtid" = "-" ] && continue
+				track_order_parts+=("0:${rtid}")
+				case "${input_types[$ti]}" in
+					video) video_tids+=("$rtid") ;;
+					audio) audio_tids+=("$rtid") ;;
+					subtitles) sub_tids+=("$rtid") ;;
+				esac
+			done
+
+			local -a track_args=()
+			if [ ${#video_tids[@]} -gt 0 ]; then
+				track_args+=(--video-tracks "$(IFS=,; echo "${video_tids[*]}")")
+			else
+				track_args+=(--no-video)
+			fi
+			if [ ${#audio_tids[@]} -gt 0 ]; then
+				track_args+=(--audio-tracks "$(IFS=,; echo "${audio_tids[*]}")")
+			else
+				track_args+=(--no-audio)
+			fi
+			if [ ${#sub_tids[@]} -gt 0 ]; then
+				track_args+=(--subtitle-tracks "$(IFS=,; echo "${sub_tids[*]}")")
+			else
+				track_args+=(--no-subtitles)
+			fi
+			if [ ${#track_order_parts[@]} -gt 0 ]; then
+				track_args+=(--track-order "$(IFS=,; echo "${track_order_parts[*]}")")
+			fi
+
+			echo "  Track selection: ${track_args[*]}"
+			mkvmerge -o "$seg_file" --no-chapters "${track_args[@]}" \
 				--split "parts:${start_ts}-${end_ts}" "$remote_file"
 		fi
 
