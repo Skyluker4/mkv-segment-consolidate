@@ -92,4 +92,4 @@ Files without remote segment UIDs are automatically skipped. A summary of merged
 
 ## License
 
-Public domain. Use however you like.
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE) only (AGPL-3.0-only), with Luke Andrew Simmons designated as a [proxy](https://www.gnu.org/licenses/agpl-3.0.html#section14) for authorizing the use of future versions.
